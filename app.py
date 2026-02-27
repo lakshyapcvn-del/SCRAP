@@ -8,9 +8,9 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
-# --- CREDENTIALS ---
+# --- UPDATED CREDENTIALS ---
 USER_EMAIL = "lakshya.pcvn@gmail.com"
-APP_PASSWORD = "up78ex2121" 
+APP_PASSWORD = "soelepugugonpaua" # Your new 16-character App Password
 
 # --- CONFIGURATION ---
 SAVE_FOLDER = "scrap_data_logs" 
@@ -27,11 +27,11 @@ with col_title:
     st.markdown("#### *Industrial Data Logging System*")
 
 with col_clock:
+    # Top Right Digital Clock with Date and Month
     now = datetime.now()
-    # TOP RIGHT: Date, Month and Digital Clock
     st.metric(label=now.strftime("%B %Y"), value=now.strftime("%d %a"), delta=now.strftime("%H:%M:%S"))
 
-# --- SESSION STATE ---
+# --- SESSION STATE (Memory Management) ---
 if 'rows' not in st.session_state:
     st.session_state.rows = [{
         'Party Name': '', 'Location': '', 'Vehicle No': '', 
@@ -55,7 +55,7 @@ def send_email_report(file_path, filename):
         msg['To'] = USER_EMAIL
         msg['Subject'] = f"SCRAP LOG: {filename}"
         
-        body = f"Daily report generated for: {datetime.now().strftime('%d %B %Y')}\nFilename: {filename}"
+        body = f"Daily SCRAP report attached.\nGenerated on: {datetime.now().strftime('%d %B %Y')}"
         msg.attach(MIMEText(body, 'plain'))
 
         with open(file_path, "rb") as attachment:
@@ -65,6 +65,7 @@ def send_email_report(file_path, filename):
             part.add_header('Content-Disposition', f"attachment; filename= {filename}")
             msg.attach(part)
 
+        # Gmail SMTP Configuration
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(USER_EMAIL, APP_PASSWORD)
@@ -72,16 +73,19 @@ def send_email_report(file_path, filename):
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Email Error: {e}")
+        st.error(f"Email Connection Error: {e}")
         return False
 
 # --- UI INPUT AREA ---
 st.write("---")
 
+total_daily_saving = 0.0
+
 for i, row in enumerate(st.session_state.rows):
     with st.container():
         st.markdown(f"### 🚛 Vehicle Entry #{i+1}")
         
+        # Grid Layout for 12 data points
         r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
         row['Party Name'] = r1_c1.text_input("Party Name", value=row['Party Name'], key=f"p_{i}")
         row['Location'] = r1_c2.text_input("Location", value=row['Location'], key=f"l_{i}")
@@ -100,11 +104,16 @@ for i, row in enumerate(st.session_state.rows):
         row['Vehicle Charge'] = r3_c3.number_input("Vehicle Charge", value=row['Vehicle Charge'], key=f"vc_{i}")
         row['GST'] = r3_c4.number_input("Total GST", value=row['GST'], key=f"gst_{i}")
 
-        # AUTO-CALC: Total Saving = (purchase amount-report amount-vehicle charge)
+        # AUTO-CALC: (purchase amount - report amount - vehicle charge)
         row['Total Saving'] = row['Purchase'] - row['Report'] - row['Vehicle Charge']
+        total_daily_saving += row['Total Saving']
         
-        st.info(f"💰 **Total Saving (Row {i+1}):** {row['Total Saving']}")
+        st.success(f"💰 **Saving for {row['Vehicle No'] if row['Vehicle No'] else f'Vehicle {i+1}'}:** {row['Total Saving']}")
         st.divider()
+
+# --- GRAND SUMMARY ---
+st.markdown(f"## 📊 Daily Summary")
+st.metric("Total Profit/Saving (Sum of all rows)", f"₹ {total_daily_saving:,.2f}")
 
 # --- BUTTON BAR ---
 footer_c1, footer_c2 = st.columns(2)
@@ -118,25 +127,24 @@ with footer_c2:
     if st.button("🚀 SAVE INFO FOR TODAY", type="primary", use_container_width=True):
         df = pd.DataFrame(st.session_state.rows)
         
-        # LOGIC: Generate filename with Date and Vehicle Numbers in brackets
-        all_vehicles = "_".join([str(r['Vehicle No']) for r in st.session_state.rows if r['Vehicle No']])
-        if not all_vehicles: all_vehicles = "No_Vehicle_No"
-        
+        # Naming Logic: Full Date + Vehicle Numbers in Brackets
         date_str = datetime.now().strftime('%d-%b-%Y')
-        filename = f"SCRAP_REPORT_{date_str}_({all_vehicles}).csv"
+        vehicle_list = [str(r['Vehicle No']) for r in st.session_state.rows if r['Vehicle No']]
+        vehicle_str = "_".join(vehicle_list) if vehicle_list else "Misc"
+        
+        filename = f"SCRAP_REPORT_{date_str}_({vehicle_str}).csv"
         filepath = os.path.join(SAVE_FOLDER, filename)
         
-        # Local Folder Save
+        # 1. Save to the connected folder
         df.to_csv(filepath, index=False)
         
-        # Email Save
+        # 2. Email the report
         if send_email_report(filepath, filename):
             st.balloons()
-            st.success(f"File Saved: {filename}")
-            st.success(f"Verified: Data sent to {USER_EMAIL}")
+            st.success(f"Successfully saved to folder and emailed to {USER_EMAIL}")
         else:
-            st.warning(f"Saved locally as {filename}, but Email failed. Check App Password.")
+            st.warning("Data saved locally, but there was an error sending the email. Check internet connection.")
 
-# --- PREVIEW ---
-with st.expander("📋 View Summary Table"):
+# --- DATA PREVIEW (Editable Authority) ---
+with st.expander("🔍 Click to review full table before saving"):
     st.table(pd.DataFrame(st.session_state.rows))
