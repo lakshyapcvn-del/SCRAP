@@ -91,7 +91,7 @@ with col_t:
     st.title("🏗️ SCRAP")
     st.markdown("#### *Advanced GST & Logistics Ledger*")
 with col_c:
-    st.metric(label=datetime.now().strftime("%B %Y"), value=datetime.now().strftime("%d %a"), delta=datetime.now().strftime("%H:%M:%S"))
+    st.metric(label=datetime.now().strftime("%B %Y"), value=datetime.now().strftime("%d %a"))
 
 if 'rows' not in st.session_state:
     st.session_state.rows = [{k: (0.0 if any(x in k for x in ['Rate', 'Qty', 'Saving', 'Revenue', 'Report', 'Purchase', 'Charge']) else '') for k in MASTER_COLS}]
@@ -103,21 +103,29 @@ for i, row in enumerate(st.session_state.rows):
     with st.container():
         st.markdown(f"### 🚛 Vehicle Entry #{i+1}")
         c1, c2, c3, c4 = st.columns(4)
-        row['Party Name'], row['Location'] = c1.text_input("Party Name", value=row['Party Name'], key=f"p_{i}"), c2.text_input("Location", value=row['Location'], key=f"l_{i}")
-        row['Vehicle No'], row['Revenue'] = c3.text_input("Vehicle No", value=row['Vehicle No'], key=f"v_{i}"), c4.number_input("Revenue", value=float(row['Revenue']), key=f"r_{i}")
+        row['Party Name'] = c1.text_input("Party Name", value=row['Party Name'], key=f"party_{i}")
+        row['Location'] = c2.text_input("Location", value=row['Location'], key=f"loc_{i}")
+        row['Vehicle No'] = c3.text_input("Vehicle No", value=row['Vehicle No'], key=f"veh_{i}")
+        row['Revenue'] = c4.number_input("Revenue", value=float(row['Revenue']), key=f"rev_{i}")
         
         c5, c6, c7, c8 = st.columns(4)
-        row['White Scrap (Qty)'], row['Green Scrap (Qty)'] = c5.number_input("White Qty", value=float(row['White Scrap (Qty)']), key=f"ws_{i}"), c6.number_input("Green Qty", value=float(row['Green Scrap (Qty)']), key=f"gs_{i}")
-        row['Party Rate'], row['Mill Rate'] = c7.number_input("P. Rate", value=float(row['Party Rate']), key=f"pr_{i}"), c8.number_input("M. Rate", value=float(row['Mill Rate']), key=f"mr_{i}")
+        row['White Scrap (Qty)'] = c5.number_input("White Qty", value=float(row['White Scrap (Qty)']), key=f"white_{i}")
+        row['Green Scrap (Qty)'] = c6.number_input("Green Qty", value=float(row['Green Scrap (Qty)']), key=f"green_{i}")
+        row['Party Rate'] = c7.number_input("P. Rate", value=float(row['Party Rate']), key=f"prate_{i}")
+        row['Mill Rate'] = c8.number_input("M. Rate", value=float(row['Mill Rate']), key=f"mrate_{i}")
         
         c9, c10, c11 = st.columns(3)
-        row['Report'], row['Purchase'], row['Vehicle Charge'] = c9.number_input("Report Amt", value=float(row['Report']), key=f"rep_{i}"), c10.number_input("Purchase Amt", value=float(row['Purchase']), key=f"pur_{i}"), c11.number_input("Vehicle Charge", value=float(row['Vehicle Charge']), key=f"vc_{i}")
+        row['Report'] = c9.number_input("Report Amt", value=float(row['Report']), key=f"report_{i}")
+        row['Purchase'] = c10.number_input("Purchase Amt", value=float(row['Purchase']), key=f"purch_{i}")
+        row['Vehicle Charge'] = c11.number_input("Vehicle Charge", value=float(row['Vehicle Charge']), key=f"charge_{i}")
 
         g1, g2 = st.columns(2)
-        row['GST Purchase %'] = g1.number_input("GP %", value=float(row['GST Purchase %']), key=f"gp_{i}")
-        row['GST Sale %'] = g2.number_input("GS %", value=float(row['GST Sale %']), key=f"gs_{i}")
+        # UNIQUE KEYS: Changed gp_in_{i} to gst_p_{i} to avoid duplicate conflicts
+        row['GST Purchase %'] = g1.number_input("Purchase GST %", value=float(row['GST Purchase %']), key=f"gst_p_{i}")
+        row['GST Sale %'] = g2.number_input("Sale GST %", value=float(row['GST Sale %']), key=f"gst_s_{i}")
 
-        g_in, g_out = (row['Revenue'] * (row['GST Purchase %']/100)), (row['Revenue'] * (row['GST Sale %']/100))
+        g_in = (row['Revenue'] * (row['GST Purchase %']/100))
+        g_out = (row['Revenue'] * (row['GST Sale %']/100))
         row['Total Saving'] = (row['Purchase'] - row['Report'] - row['Vehicle Charge']) + g_in + g_out
         total_daily_saving += row['Total Saving']
         st.info(f"Saving: ₹{row['Total Saving']:,.2f}")
@@ -151,16 +159,17 @@ st.subheader("📁 Download Center")
 tab_today, tab_range, tab_master = st.tabs(["📄 Today's PDF", "📅 Range PDF", "📊 Master Excel"])
 
 with tab_today:
-    today_df = pd.DataFrame(st.session_state.rows)
-    today_df['Date'] = datetime.now().strftime("%d/%m/%Y")
-    pdf_path = generate_pdf_report(today_df, f"Daily_{date.today()}")
-    with open(pdf_path, "rb") as f:
-        st.download_button("📥 Download Today's PDF", f, file_name=pdf_path, use_container_width=True)
+    if st.button("🛠️ Click to Prepare Today's PDF", key="btn_prep_today"):
+        t_df = pd.DataFrame(st.session_state.rows)
+        t_df['Date'] = datetime.now().strftime("%d/%m/%Y")
+        pdf_path = generate_pdf_report(t_df, f"Daily_{date.today()}")
+        with open(pdf_path, "rb") as f:
+            st.download_button("📥 Download PDF Now", f, file_name=pdf_path)
 
 with tab_range:
     c1, c2 = st.columns(2)
-    start_d, end_d = c1.date_input("Start Date"), c2.date_input("End Date")
-    if st.button("🔎 Generate Range PDF", use_container_width=True):
+    start_d, end_d = c1.date_input("Start Date", key="sd"), c2.date_input("End Date", key="ed")
+    if st.button("🔎 Generate Range PDF", key="btn_gen_range"):
         if os.path.exists(FULL_MASTER_PATH):
             mdf = pd.read_excel(FULL_MASTER_PATH)
             mdf['dt_obj'] = pd.to_datetime(mdf['Date'], format='%d/%m/%Y').dt.date
@@ -169,9 +178,9 @@ with tab_range:
                 r_pdf = generate_pdf_report(fdf, f"Range_{start_d}_to_{end_d}")
                 with open(r_pdf, "rb") as f:
                     st.download_button("📥 Download Range PDF", f, file_name=r_pdf)
-            else: st.warning("No data for these dates.")
+            else: st.warning("No data found for these dates.")
 
 with tab_master:
     if os.path.exists(FULL_MASTER_PATH):
         with open(FULL_MASTER_PATH, "rb") as f:
-            st.download_button("📥 Download Full Master.xlsx", f, file_name=MASTER_FILE, use_container_width=True)
+            st.download_button("📥 Download Master.xlsx", f, file_name=MASTER_FILE, key="btn_dl_master")
