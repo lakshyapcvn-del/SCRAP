@@ -3,80 +3,67 @@ import fitz  # PyMuPDF
 import io
 from reportlab.pdfgen import canvas
 
-def edit_pdf_logic(input_bytes, modifications):
-    # Load the PDF from bytes
+def process_receipt_by_coordinates(input_bytes, changes):
     doc = fitz.open(stream=input_bytes, filetype="pdf")
     page = doc[0]
     
-    # Create an overlay in memory
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=(page.rect.width, page.rect.height))
-    
-    # Matching the fixed-width thermal printer font
     can.setFont("Courier-Bold", 10)
 
-    for old_text, new_text in modifications.items():
-        if not new_text or new_text.upper() == "(NO CHANGE)":
+    # These coordinates are mapped specifically to the layout of your 'SHUSHILA' receipts
+    # [x0, y0, x1, y1] -> The box to whiten and rewrite
+    locations = {
+        "HEADING": [50, 20, 400, 45],    # Top Heading area
+        "VEHICLE": [150, 115, 280, 130], # Vehicle No area
+        "MATERIAL": [150, 140, 280, 155], # Material area
+        "GROSS": [50, 185, 120, 200],    # Gross Weight area
+        "TARE": [50, 200, 120, 215],     # Tare Weight area
+        "NET": [50, 215, 120, 230]       # Net Weight area
+    }
+
+    for key, rect_coords in locations.items():
+        new_text = changes.get(key, "(no change)")
+        if new_text == "(no change)":
             continue
+            
+        # 1. WHITEN: Cleanly mask the specific physical area
+        rect = fitz.Rect(rect_coords)
+        page.add_redact_annot(rect, fill=(1, 1, 1))
+        page.apply_redactions()
 
-        # Search for text (using 'hit_max' to ensure we find all fragments)
-        text_instances = page.search_for(old_text)
-
-        if not text_instances:
-            # Try a partial search if full search fails
-            short_search = old_text.split()[-1] 
-            text_instances = page.search_for(short_search)
-
-        for inst in text_instances:
-            # 1. WHITEN: Cleanly mask the old text
-            page.add_redact_annot(inst, fill=(1, 1, 1))
-            page.apply_redactions()
-
-            # 2. REWRITE: Align with the thermal printer baseline
-            can.drawString(inst.x0, inst.y0 + 2, new_text)
+        # 2. REWRITE: Place new text exactly in that box
+        can.drawString(rect.x0, rect.y0 + 10, new_text)
 
     can.save()
     packet.seek(0)
-
-    # Merge layers
-    new_layer = fitz.open("pdf", packet.read())
-    page.show_pdf_page(page.rect, new_layer, 0)
     
+    overlay = fitz.open("pdf", packet.read())
+    page.show_pdf_page(page.rect, overlay, 0)
     return doc.tobytes()
 
-# --- STREAMLIT UI ---
+# --- STREAMLIT UI WITH BOLD HEADINGS ---
 st.title("Symmetry PDF Editor")
+file = st.file_uploader("Upload Receipt", type="pdf")
 
-uploaded_file = st.file_uploader("Upload your receipt PDF", type="pdf")
-
-if uploaded_file:
-    st.subheader("Edit Domains")
+if file:
+    # DOMAINS
+    st.markdown("### **The top heading**")
+    h = st.text_input("New Heading", value="(no change)")
     
-    # DOMAINS BASED ON YOUR FILES
-    new_h = st.text_input("**The top heading**", value="(no change)")
-    new_v = st.text_input("**vehicle no.**", value="(no change)")
-    new_t = st.text_input("**vehicle type**", value="(no change)")
-    new_m = st.text_input("**material**", value="(no change)")
-    new_g = st.text_input("**gross weight**", value="(no change)")
-    new_ta = st.text_input("**tare weight**", value="(no change)")
-    new_n = st.text_input("**net weight**", value="(no change)")
+    st.markdown("### **vehicle no.**")
+    v = st.text_input("New Vehicle No", value="(no change)")
+    
+    st.markdown("### **vehicle type/material**")
+    m = st.text_input("New Material", value="(no change)")
+    
+    st.markdown("### **Weights**")
+    g = st.text_input("Gross Weight", value="(no change)")
+    ta = st.text_input("Tare Weight", value="(no change)")
+    n = st.text_input("Net Weight", value="(no change)")
 
-    mapping = {
-        "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": new_h,
-        "UP82T 4786": new_v,
-        "DCM-6": new_t,
-        "PLASTIC": new_m,
-        "16320": new_g,
-        "6360": new_ta,
-        "9960": new_n
-    }
+    user_data = {"HEADING": h, "VEHICLE": v, "MATERIAL": m, "GROSS": g, "TARE": ta, "NET": n}
 
     if st.button("Generate Accurate PDF"):
-        result_pdf = edit_pdf_logic(uploaded_file.read(), mapping)
-        
-        st.download_button(
-            label="Download Edited PDF",
-            data=result_pdf,
-            file_name="edited_receipt.pdf",
-            mime="application/pdf"
-        )
+        final_pdf = process_receipt_by_coordinates(file.read(), user_data)
+        st.download_button("Download Now", final_pdf, "edited_receipt.pdf")
