@@ -1,57 +1,61 @@
 import fitz  # PyMuPDF
 import io
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 
-def process_receipt(input_pdf, output_pdf, mapping):
-    # Open the document
-    doc = fitz.open(input_pdf)
+def edit_receipt_symmetry(input_path, output_path, changes):
+    # Open the original PDF
+    doc = fitz.open(input_path)
+    page = doc[0]
     
-    for page_layout in doc:
-        # Create a overlay PDF in memory
-        packet = io.BytesIO()
-        can = canvas.Canvas(packet, pagesize=(page_layout.rect.width, page_layout.rect.height))
+    # Create an overlay layer in memory
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=(page.rect.width, page.rect.height))
+    
+    # Matching the fixed-width thermal printer font found in the images
+    can.setFont("Courier-Bold", 9) 
+
+    for old_text, new_text in changes.items():
+        if new_text.lower() == "(no change)":
+            continue
+            
+        # 1. Locate the text on the page
+        text_instances = page.search_for(old_text)
         
-        # Using Courier as it matches the fixed-width thermal font in the images
-        can.setFont("Courier-Bold", 10)
+        for inst in text_instances:
+            # 2. WHITEN: Mask the old text with a white rectangle to maintain background
+            page.add_redact_annot(inst, fill=(1, 1, 1))
+            page.apply_redactions()
+            
+            # 3. REWRITE: Place new text exactly in the same bounding box
+            # Vertical adjustment (+2) to align with thermal printer baseline
+            can.drawString(inst.x0, inst.y0 + 2, new_text)
+    
+    can.save()
+    packet.seek(0)
+    
+    # Merge the overlay onto the redacted page
+    new_layer = fitz.open("pdf", packet.read())
+    page.show_pdf_page(page.rect, new_layer, 0)
+    
+    doc.save(output_path)
+    print(f"File generated: {output_path}")
 
-        for old_text, new_text in mapping.items():
-            if not new_text or new_text.lower() == "no change":
-                continue
-
-            # Find coordinates of the text to be replaced
-            text_instances = page_layout.search_for(old_text)
-
-            for inst in text_instances:
-                # 1. CLEANLY WHITEN: Draw a white rectangle over the old text
-                # This acts as the "white-off" tape
-                page_layout.add_redact_annot(inst, fill=(1, 1, 1))
-                page_layout.apply_redactions()
-
-                # 2. REWRITE: Place new text at the same spot
-                # Small vertical offset (+2) to align with the thermal print baseline
-                can.drawString(inst.x0, inst.y0 + 2, new_text)
-
-        can.save()
-        packet.seek(0)
-
-        # Merge the new text layer onto the page
-        overlay = fitz.open("pdf", packet.read())
-        page_layout.show_pdf_page(page_layout.rect, overlay, 0)
-
-    doc.save(output_pdf)
-    doc.close()
-
-# --- INPUT YOUR CHANGES HERE ---
-# Based on the font analysis of SHUSHILA DHARAM KANTA receipts
-replacements = {
-    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "YOUR NEW HEADING", # Top Heading
-    "UP82T 4786": "VEHICLE NO",                                  # Vehicle No.
-    "PLASTIC": "VEHICLE TYPE/MATERIAL",                          # Material
-    "16320": "NEW GROSS",                                        # Gross Weight
-    "6360": "NEW TARE",                                          # Tare Weight
-    "9960": "NEW NET"                                            # Net Weight
+# --- INPUT DOMAINS ---
+# Replace the text in the parentheses below with your desired updates
+modifications = {
+    # Top Heading 
+    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "(no change)", 
+    
+    # Vehicle and Commodity Info 
+    "UP82T 4786": "(no change)",        # vehicle no.
+    "DCM-6": "(no change)",             # vehicle type (from photo)
+    "PLASTIC": "(no change)",           # commodity/material 
+    
+    # Weight Data 
+    "16320": "(no change)",             # gross weight
+    "6360": "(no change)",              # tare weight
+    "9960": "(no change)"               # net weight
 }
 
-# To run:
-# process_receipt("kp.pdf", "final_output.pdf", replacements)
+# Execution
+# edit_receipt_symmetry("kp.pdf", "final_receipt.pdf", modifications)
