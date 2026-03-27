@@ -1,58 +1,57 @@
 import fitz  # PyMuPDF
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
 import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
-def edit_receipt(input_pdf_path, output_pdf_path, modifications):
-    # 1. Open the original PDF
-    doc = fitz.open(input_pdf_path)
-    page = doc[0]
+def process_receipt(input_pdf, output_pdf, mapping):
+    # Open the document
+    doc = fitz.open(input_pdf)
     
-    # 2. Create a temporary PDF for the new text overlay
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(page.rect.width, page.rect.height))
-    
-    # Using 'Courier' as it is the closest standard PDF match to the 
-    # monospaced dot-matrix font seen in the files [cite: 1, 7, 10]
-    can.setFont("Courier-Bold", 10) 
-
-    for old_text, new_text in modifications.items():
-        if new_text.lower() == "no change":
-            continue
-            
-        # Search for the specific text instances
-        text_instances = page.search_for(old_text)
+    for page_layout in doc:
+        # Create a overlay PDF in memory
+        packet = io.BytesIO()
+        can = canvas.Canvas(packet, pagesize=(page_layout.rect.width, page_layout.rect.height))
         
-        for inst in text_instances:
-            # "Whiten off" the old text by drawing a white rectangle
-            page.add_redact_annot(inst, fill=(1, 1, 1))
-            page.apply_redactions()
-            
-            # Write the new text at the same coordinates
-            # We adjust slightly to maintain vertical symmetry
-            can.drawString(inst.x0, inst.y0 + (inst.height * 0.2), new_text)
-    
-    can.save()
-    packet.seek(0)
-    
-    # 3. Merge the overlay with the redacted original
-    new_pdf = fitz.open("pdf", packet.read())
-    page.show_pdf_page(page.rect, new_pdf, 0)
-    
-    doc.save(output_pdf_path)
-    print(f"File saved successfully as {output_pdf_path}")
+        # Using Courier as it matches the fixed-width thermal font in the images
+        can.setFont("Courier-Bold", 10)
 
-# --- CONFIGURATION DOMAINS ---
-# Replace the values in the parentheses with your desired text
-changes = {
-    "SUSHILA COMPUTERISED DHARAM KANTA": "NEW HEADING HERE", # (no change)
-    "UP83BT/2931": "UP32XX1234",                             # (no change)
-    "DCM-6": "HEAVY TRUCK",                                   # (no change)
-    "MATEARIL": "IRON SCRAP",                                # (no change)
-    "15085": "16000",                                        # (no change)
-    "6155": "6000",                                          # (no change)
-    "8930": "10000"                                          # (no change)
+        for old_text, new_text in mapping.items():
+            if not new_text or new_text.lower() == "no change":
+                continue
+
+            # Find coordinates of the text to be replaced
+            text_instances = page_layout.search_for(old_text)
+
+            for inst in text_instances:
+                # 1. CLEANLY WHITEN: Draw a white rectangle over the old text
+                # This acts as the "white-off" tape
+                page_layout.add_redact_annot(inst, fill=(1, 1, 1))
+                page_layout.apply_redactions()
+
+                # 2. REWRITE: Place new text at the same spot
+                # Small vertical offset (+2) to align with the thermal print baseline
+                can.drawString(inst.x0, inst.y0 + 2, new_text)
+
+        can.save()
+        packet.seek(0)
+
+        # Merge the new text layer onto the page
+        overlay = fitz.open("pdf", packet.read())
+        page_layout.show_pdf_page(page_layout.rect, overlay, 0)
+
+    doc.save(output_pdf)
+    doc.close()
+
+# --- INPUT YOUR CHANGES HERE ---
+# Based on the font analysis of SHUSHILA DHARAM KANTA receipts
+replacements = {
+    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "YOUR NEW HEADING", # Top Heading
+    "UP82T 4786": "VEHICLE NO",                                  # Vehicle No.
+    "PLASTIC": "VEHICLE TYPE/MATERIAL",                          # Material
+    "16320": "NEW GROSS",                                        # Gross Weight
+    "6360": "NEW TARE",                                          # Tare Weight
+    "9960": "NEW NET"                                            # Net Weight
 }
 
-# Run the editor
-# edit_receipt("kp.pdf", "updated_receipt.pdf", changes)
+# To run:
+# process_receipt("kp.pdf", "final_output.pdf", replacements)
