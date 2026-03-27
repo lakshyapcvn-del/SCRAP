@@ -1,57 +1,82 @@
+import streamlit as st
 import fitz  # PyMuPDF
 import io
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 
-def symmetry_pdf_editor(input_stream, modifications):
-    # Open the PDF from the uploaded stream
-    doc = fitz.open(stream=input_stream, filetype="pdf")
+def edit_pdf_logic(input_bytes, modifications):
+    # Load the PDF from bytes
+    doc = fitz.open(stream=input_bytes, filetype="pdf")
     page = doc[0]
     
     # Create an overlay in memory
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=(page.rect.width, page.rect.height))
     
-    # Matching the fixed-width thermal printer font (Courier-Bold)
+    # Matching the fixed-width thermal printer font
     can.setFont("Courier-Bold", 10)
 
     for old_text, new_text in modifications.items():
-        if not new_text or new_text.lower() == "(no change)":
+        if not new_text or new_text.upper() == "(NO CHANGE)":
             continue
 
-        # Find the exact coordinates of the target text
+        # Search for text (using 'hit_max' to ensure we find all fragments)
         text_instances = page.search_for(old_text)
 
+        if not text_instances:
+            # Try a partial search if full search fails
+            short_search = old_text.split()[-1] 
+            text_instances = page.search_for(short_search)
+
         for inst in text_instances:
-            # STAGE 1: CLEAN WHITEN-OFF (The "Symmetry" Logic)
-            # This masks only the text area to keep the background clean
+            # 1. WHITEN: Cleanly mask the old text
             page.add_redact_annot(inst, fill=(1, 1, 1))
             page.apply_redactions()
 
-            # STAGE 2: ACCURATE REWRITE
-            # We use a slight vertical offset to match the original baseline
+            # 2. REWRITE: Align with the thermal printer baseline
             can.drawString(inst.x0, inst.y0 + 2, new_text)
 
     can.save()
     packet.seek(0)
 
-    # Merge the new text layer onto the original page
-    new_pdf = fitz.open("pdf", packet.read())
-    page.show_pdf_page(page.rect, new_pdf, 0)
+    # Merge layers
+    new_layer = fitz.open("pdf", packet.read())
+    page.show_pdf_page(page.rect, new_layer, 0)
     
     return doc.tobytes()
 
-# --- INPUT YOUR CHANGES HERE ---
-# If you don't want to change a field, leave it as "(no change)"
-changes = {
-    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "(no change)", # **Top Heading**
-    "UP82T 4786": "(no change)",                             # **vehicle no.**
-    "PLASTIC": "(no change)",                                # **vehicle type/material**
-    "16320": "(no change)",                                  # **gross weight**
-    "6360": "(no change)",                                   # **tare weight**
-    "9960": "(no change)"                                    # **net weight**
-}
+# --- STREAMLIT UI ---
+st.title("Symmetry PDF Editor")
 
-# Usage in Streamlit:
-# if uploaded_file:
-#     final_pdf = symmetry_pdf_editor(uploaded_file.read(), changes)
+uploaded_file = st.file_uploader("Upload your receipt PDF", type="pdf")
+
+if uploaded_file:
+    st.subheader("Edit Domains")
+    
+    # DOMAINS BASED ON YOUR FILES
+    new_h = st.text_input("**The top heading**", value="(no change)")
+    new_v = st.text_input("**vehicle no.**", value="(no change)")
+    new_t = st.text_input("**vehicle type**", value="(no change)")
+    new_m = st.text_input("**material**", value="(no change)")
+    new_g = st.text_input("**gross weight**", value="(no change)")
+    new_ta = st.text_input("**tare weight**", value="(no change)")
+    new_n = st.text_input("**net weight**", value="(no change)")
+
+    mapping = {
+        "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": new_h,
+        "UP82T 4786": new_v,
+        "DCM-6": new_t,
+        "PLASTIC": new_m,
+        "16320": new_g,
+        "6360": new_ta,
+        "9960": new_n
+    }
+
+    if st.button("Generate Accurate PDF"):
+        result_pdf = edit_pdf_logic(uploaded_file.read(), mapping)
+        
+        st.download_button(
+            label="Download Edited PDF",
+            data=result_pdf,
+            file_name="edited_receipt.pdf",
+            mime="application/pdf"
+        )
