@@ -1,61 +1,57 @@
 import fitz  # PyMuPDF
 import io
 from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
 
-def edit_receipt_symmetry(input_path, output_path, changes):
-    # Open the original PDF
-    doc = fitz.open(input_path)
+def symmetry_pdf_editor(input_stream, modifications):
+    # Open the PDF from the uploaded stream
+    doc = fitz.open(stream=input_stream, filetype="pdf")
     page = doc[0]
     
-    # Create an overlay layer in memory
+    # Create an overlay in memory
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=(page.rect.width, page.rect.height))
     
-    # Matching the fixed-width thermal printer font found in the images
-    can.setFont("Courier-Bold", 9) 
+    # Matching the fixed-width thermal printer font (Courier-Bold)
+    can.setFont("Courier-Bold", 10)
 
-    for old_text, new_text in changes.items():
-        if new_text.lower() == "(no change)":
+    for old_text, new_text in modifications.items():
+        if not new_text or new_text.lower() == "(no change)":
             continue
-            
-        # 1. Locate the text on the page
+
+        # Find the exact coordinates of the target text
         text_instances = page.search_for(old_text)
-        
+
         for inst in text_instances:
-            # 2. WHITEN: Mask the old text with a white rectangle to maintain background
+            # STAGE 1: CLEAN WHITEN-OFF (The "Symmetry" Logic)
+            # This masks only the text area to keep the background clean
             page.add_redact_annot(inst, fill=(1, 1, 1))
             page.apply_redactions()
-            
-            # 3. REWRITE: Place new text exactly in the same bounding box
-            # Vertical adjustment (+2) to align with thermal printer baseline
+
+            # STAGE 2: ACCURATE REWRITE
+            # We use a slight vertical offset to match the original baseline
             can.drawString(inst.x0, inst.y0 + 2, new_text)
-    
+
     can.save()
     packet.seek(0)
-    
-    # Merge the overlay onto the redacted page
-    new_layer = fitz.open("pdf", packet.read())
-    page.show_pdf_page(page.rect, new_layer, 0)
-    
-    doc.save(output_path)
-    print(f"File generated: {output_path}")
 
-# --- INPUT DOMAINS ---
-# Replace the text in the parentheses below with your desired updates
-modifications = {
-    # Top Heading 
-    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "(no change)", 
+    # Merge the new text layer onto the original page
+    new_pdf = fitz.open("pdf", packet.read())
+    page.show_pdf_page(page.rect, new_pdf, 0)
     
-    # Vehicle and Commodity Info 
-    "UP82T 4786": "(no change)",        # vehicle no.
-    "DCM-6": "(no change)",             # vehicle type (from photo)
-    "PLASTIC": "(no change)",           # commodity/material 
-    
-    # Weight Data 
-    "16320": "(no change)",             # gross weight
-    "6360": "(no change)",              # tare weight
-    "9960": "(no change)"               # net weight
+    return doc.tobytes()
+
+# --- INPUT YOUR CHANGES HERE ---
+# If you don't want to change a field, leave it as "(no change)"
+changes = {
+    "SHUSHILA NEAR COMPUTRISED CHARAM KANTA": "(no change)", # **Top Heading**
+    "UP82T 4786": "(no change)",                             # **vehicle no.**
+    "PLASTIC": "(no change)",                                # **vehicle type/material**
+    "16320": "(no change)",                                  # **gross weight**
+    "6360": "(no change)",                                   # **tare weight**
+    "9960": "(no change)"                                    # **net weight**
 }
 
-# Execution
-# edit_receipt_symmetry("kp.pdf", "final_receipt.pdf", modifications)
+# Usage in Streamlit:
+# if uploaded_file:
+#     final_pdf = symmetry_pdf_editor(uploaded_file.read(), changes)
